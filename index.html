@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portero QR — Prototipo</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1418; --panel:#182027; --panel2:#212c35; --line:#2e3c47;
+    --txt:#eef3f6; --mut:#93a4b0; --acc:#f2b233; --ok:#35c27a; --no:#e5534b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--txt);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:520px;margin:0 auto;padding:20px 16px 40px}
+  .wide{max-width:900px}
+  h1{font-size:22px;margin:0 0 4px;letter-spacing:.2px}
+  h2{font-size:15px;margin:24px 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+  p{margin:6px 0}
+  .mut{color:var(--mut);font-size:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:14px}
+  .plate{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .led{width:10px;height:10px;border-radius:50%;background:var(--mut);flex:none}
+  .led.on{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  .led.ring{background:var(--acc);box-shadow:0 0 12px var(--acc);animation:blink .7s infinite}
+  @keyframes blink{50%{opacity:.25}}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  button{font:inherit;color:var(--txt);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 10px;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  button.sel{background:var(--acc);border-color:var(--acc);color:#1b1400;font-weight:700}
+  button.pri{background:var(--acc);border-color:var(--acc);color:#1b1400;font-weight:700;width:100%;padding:15px;font-size:17px}
+  button.ok{background:var(--ok);border-color:var(--ok);color:#04220f;font-weight:700}
+  button.no{background:var(--no);border-color:var(--no);color:#fff;font-weight:700}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  label{display:block;font-size:14px;color:var(--mut);margin:14px 0 6px}
+  input[type=text],textarea{width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit}
+  textarea{resize:vertical;min-height:70px}
+  .row{display:flex;gap:10px}
+  .row > *{flex:1}
+  .hide{display:none !important}
+  .status{text-align:center;padding:26px 10px}
+  .status .big{font-size:20px;font-weight:700;margin-bottom:6px}
+  .thumb{width:96px;height:96px;border-radius:12px;object-fit:cover;border:1px solid var(--line);background:var(--bg)}
+  .visit{display:flex;gap:14px;align-items:center}
+  .visit .who{font-size:20px;font-weight:700}
+  .err{color:#ffb3ae;font-size:14px;margin-top:8px;min-height:1em}
+  .banner{border-radius:10px;padding:10px 12px;font-size:14px;margin-top:12px;border:1px solid var(--line);background:var(--panel2)}
+  .banner.warn{border-color:#7a5a12;background:#2a2109;color:#ffd98a}
+  .banner.good{border-color:#1d6b43;background:#0d2a1b;color:#a6f0c8}
+  /* llamada */
+  #vCall{position:fixed;inset:0;background:#000;display:flex;flex-direction:column}
+  #remote{flex:1;width:100%;min-height:0;object-fit:cover;background:#05080a}
+  #local{position:absolute;right:12px;top:12px;width:104px;height:140px;object-fit:cover;border-radius:12px;border:2px solid rgba(255,255,255,.5);background:#111}
+  #callInfo{position:absolute;left:12px;top:12px;background:rgba(0,0,0,.55);padding:8px 12px;border-radius:10px;font-size:14px;max-width:60%}
+  #doorMsg{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);background:var(--ok);color:#04220f;font-weight:800;font-size:22px;padding:16px 22px;border-radius:14px;text-align:center}
+  .bar{display:flex;gap:8px;padding:12px;background:#0b0f12;flex-wrap:wrap}
+  .bar button{flex:1;min-width:70px}
+  /* admin */
+  .two{display:grid;grid-template-columns:1fr;gap:14px}
+  @media(min-width:760px){.two{grid-template-columns:300px 1fr}}
+  #qr{background:#fff;padding:14px;border-radius:12px;display:inline-block}
+  #qr img,#qr canvas{display:block}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td{padding:8px 6px;border-top:1px solid var(--line);vertical-align:middle}
+  a{color:var(--acc)}
+  code{background:var(--bg);padding:2px 6px;border-radius:6px;font-size:13px;word-break:break-all}
+</style>
+</head>
+<body>
+
+<!-- ============ ADMIN ============ -->
+<div id="vAdmin" class="wrap wide hide">
+  <h1>Portero QR — Panel del prototipo</h1>
+  <p class="mut" id="admEdif"></p>
+  <div id="admModo" class="banner"></div>
+  <div class="two">
+    <div class="card">
+      <h2 style="margin-top:0">QR para la entrada</h2>
+      <div id="qr"></div>
+      <p class="mut" style="margin-top:10px">Apunta a: <br><code id="qrUrl"></code></p>
+      <p><a id="qrOpen" target="_blank" rel="noopener">Abrir como visitante</a></p>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">Links de los propietarios</h2>
+      <p class="mut">Cada propietario abre su link en el celular y lo deja abierto para recibir el timbre.</p>
+      <table id="admUnits"></table>
+    </div>
+  </div>
+</div>
+
+<!-- ============ VISITANTE ============ -->
+<div id="vVisit" class="wrap hide">
+  <div class="plate"><span class="led on"></span><div><h1>Portero</h1><div class="mut" id="visEdif"></div></div></div>
+
+  <div id="visForm">
+    <div class="card">
+      <h2 style="margin-top:0">1 · Piso</h2>
+      <div class="grid" id="pisos"></div>
+      <h2>2 · Departamento</h2>
+      <div class="grid" id="deptos"><span class="mut" style="grid-column:1/-1">Elegí primero el piso.</span></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">3 · ¿Quién sos?</h2>
+      <label for="vNombre">Tu nombre</label>
+      <input id="vNombre" type="text" maxlength="40" autocomplete="name" placeholder="Ej.: Juan Pérez">
+      <label for="vMotivo">Motivo de la visita</label>
+      <textarea id="vMotivo" maxlength="140" placeholder="Ej.: Traigo un pedido / Soy el plomero"></textarea>
+      <label for="vFoto">Foto (opcional, ayuda a que te reconozcan)</label>
+      <div class="visit">
+        <img id="vFotoPrev" class="thumb hide" alt="Tu foto">
+        <input id="vFoto" type="file" accept="image/*" capture="user">
+      </div>
+    </div>
+    <div class="err" id="visErr"></div>
+    <button class="pri" id="btnTimbre" style="margin-top:8px">Tocar timbre</button>
+  </div>
+
+  <div id="visWait" class="card status hide">
+    <div class="big" id="visStTitle"></div>
+    <div class="mut" id="visStSub"></div>
+    <button id="btnVisCancel" class="no" style="margin-top:18px">Cancelar</button>
+    <button id="btnVisRetry" class="hide" style="margin-top:18px">Volver al portero</button>
+  </div>
+</div>
+
+<!-- ============ PROPIETARIO ============ -->
+<div id="vOwner" class="wrap hide">
+  <div class="plate"><span class="led" id="ownLed"></span><div><h1 id="ownTitle"></h1><div class="mut" id="ownEdif"></div></div></div>
+
+  <div id="ownOff" class="card status">
+    <div class="big">Portero desactivado</div>
+    <div class="mut">Activalo para recibir el timbre con sonido en este dispositivo.</div>
+    <button class="pri" id="btnActivar" style="margin-top:18px">Activar portero</button>
+  </div>
+
+  <div id="ownIdle" class="card status hide">
+    <div class="big">Esperando visitas…</div>
+    <div class="mut">Dejá esta página abierta. Cuando alguien toque el timbre va a sonar acá.</div>
+    <div id="ownMissed" class="banner warn hide" style="text-align:left"></div>
+  </div>
+
+  <div id="ownRing" class="card hide">
+    <h2 style="margin-top:0">Están tocando el timbre</h2>
+    <div class="visit">
+      <img id="rFoto" class="thumb" alt="Foto del visitante">
+      <div>
+        <div class="who" id="rNombre"></div>
+        <div id="rMotivo"></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="no" id="btnRechazar">Rechazar</button>
+      <button class="ok" id="btnAceptar">Atender</button>
+    </div>
+    <p class="mut" style="margin-top:10px">El visitante no te ve ni te escucha hasta que atiendas.</p>
+  </div>
+</div>
+
+<!-- ============ LLAMADA ============ -->
+<div id="vCall" class="hide">
+  <video id="remote" autoplay playsinline></video>
+  <video id="local" autoplay playsinline muted></video>
+  <div id="callInfo"></div>
+  <div id="doorMsg" class="hide">Puerta abierta<br><span style="font-size:15px;font-weight:600">Podés pasar</span></div>
+  <div class="bar">
+    <button id="btnMic">Micrófono: sí</button>
+    <button id="btnCam">Cámara: sí</button>
+    <button id="btnDoor" class="ok hide">Abrir puerta</button>
+    <button id="btnHang" class="no">Cortar</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   CONFIGURACIÓN — lo único que hay que tocar
+   ===================================================================== */
+const CONFIG = {
+  // Pegá acá los datos de tu proyecto Supabase (Settings → API).
+  // Vacío = "modo local": solo funciona entre pestañas del mismo navegador.
+  SUPABASE_URL: '',
+  SUPABASE_ANON_KEY: '',
+
+  edificioId: 'demo-edificio-1',                 // único por edificio (sin espacios)
+  edificioNombre: 'Edificio Demo — Av. Siempreviva 742',
+  pisos: [
+    { piso: 'PB', deptos: ['A', 'B'] },
+    { piso: '1',  deptos: ['A', 'B', 'C'] },
+    { piso: '2',  deptos: ['A', 'B', 'C'] },
+    { piso: '3',  deptos: ['A', 'B', 'C'] },
+  ],
+
+  timeoutSeg: 45,                                // cuánto suena antes de "no contesta"
+  // Para producción agregá un servidor TURN acá (si no, con datos móviles algunas llamadas no conectan).
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+};
+
+/* ===================================================================== */
+const $ = id => document.getElementById(id);
+const show = (id, on = true) => $(id).classList.toggle('hide', !on);
+const unitId = (p, d) => p + '-' + d;
+const unitLabel = (p, d) => (p === 'PB' ? 'PB ' : p + 'º ') + d;
+const allUnits = () => CONFIG.pisos.flatMap(p => p.deptos.map(d => ({ id: unitId(p.piso, d), label: unitLabel(p.piso, d) })));
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const baseUrl = location.href.split('?')[0].split('#')[0];
+
+/* ---------- Transporte de mensajes (Supabase Realtime o modo local) ---------- */
+const supa = (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase)
+  ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
+
+function conectar(unidad, onMsg) {
+  const sala = 'portero:' + CONFIG.edificioId + ':' + unidad;
+  if (supa) {
+    return new Promise((res, rej) => {
+      const ch = supa.channel(sala, { config: { broadcast: { self: false } } });
+      ch.on('broadcast', { event: 'm' }, ({ payload }) => onMsg(payload));
+      ch.subscribe(st => {
+        if (st === 'SUBSCRIBED') res({
+          send: p => ch.send({ type: 'broadcast', event: 'm', payload: p }),
+          close: () => supa.removeChannel(ch),
+        });
+        else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') rej(new Error('No se pudo conectar al servidor'));
+      });
+    });
+  }
+  const bc = new BroadcastChannel(sala);
+  bc.onmessage = e => onMsg(e.data);
+  return Promise.resolve({ send: p => bc.postMessage(p), close: () => bc.close() });
+}
+
+/* ---------- Estado compartido de la llamada ---------- */
+let T = null;            // transporte
+let callId = null;
+let pc = null, localStream = null, pendingIce = [];
+let rol = null;          // 'vis' | 'own'
+const send = m => T && T.send(Object.assign({ callId }, m));
+
+async function getMedia() {
+  try { return await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true }); }
+  catch (e) {
+    try { return await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e2) { return null; }
+  }
+}
+
+async function prepararLlamada(info) {
+  localStream = await getMedia();
+  pc = new RTCPeerConnection({ iceServers: CONFIG.iceServers });
+  pendingIce = [];
+  pc.onicecandidate = e => { if (e.candidate) send({ t: 'ice', c: e.candidate.toJSON() }); };
+  const remoteStream = new MediaStream();
+  $('remote').srcObject = remoteStream;
+  pc.ontrack = e => { remoteStream.addTrack(e.track); $('remote').play().catch(() => {}); };
+  pc.onconnectionstatechange = () => {
+    const s = pc ? pc.connectionState : '';
+    if (s === 'connected') $('callInfo').textContent = info;
+    if (s === 'failed') $('callInfo').textContent = 'No se pudo establecer la conexión (probá con otra red o agregá un servidor TURN).';
+    if (s === 'disconnected') $('callInfo').textContent = 'Reconectando…';
+  };
+  const kinds = { audio: false, video: false };
+  if (localStream) {
+    localStream.getTracks().forEach(t => { pc.addTrack(t, localStream); kinds[t.kind] = true; });
+    $('local').srcObject = localStream;
+  }
+  show('local', kinds.video);
+  $('btnMic').disabled = !kinds.audio; $('btnCam').disabled = !kinds.video;
+  $('btnMic').textContent = kinds.audio ? 'Micrófono: sí' : 'Sin micrófono';
+  $('btnCam').textContent = kinds.video ? 'Cámara: sí' : 'Sin cámara';
+  $('callInfo').textContent = 'Conectando…';
+  show('doorMsg', false);
+  show('btnDoor', rol === 'own');
+  show('vCall');
+  return kinds;
+}
+
+async function aplicarIcePendiente() {
+  for (const c of pendingIce) { try { await pc.addIceCandidate(c); } catch (e) {} }
+  pendingIce = [];
+}
+async function onIce(c) {
+  if (!pc) return;
+  if (pc.remoteDescription && pc.remoteDescription.type) { try { await pc.addIceCandidate(c); } catch (e) {} }
+  else pendingIce.push(c);
+}
+
+function cerrarMedia() {
+  if (localStream) localStream.getTracks().forEach(t => t.stop());
+  if (pc) { pc.onicecandidate = pc.ontrack = pc.onconnectionstatechange = null; pc.close(); }
+  pc = null; localStream = null;
+  $('remote').srcObject = null; $('local').srcObject = null;
+  show('vCall', false);
+}
+
+function toggleTrack(kind, btn, nombre) {
+  if (!localStream) return;
+  const t = localStream.getTracks().find(x => x.kind === kind);
+  if (!t) return;
+  t.enabled = !t.enabled;
+  btn.textContent = nombre + ': ' + (t.enabled ? 'sí' : 'no');
+}
+$('btnMic').onclick = () => toggleTrack('audio', $('btnMic'), 'Micrófono');
+$('btnCam').onclick = () => toggleTrack('video', $('btnCam'), 'Cámara');
+$('btnHang').onclick = () => { send({ t: 'hangup' }); rol === 'vis' ? visFin('Llamada finalizada', '') : ownFin(); };
+$('btnDoor').onclick = () => {
+  // ACÁ va la llamada real al relé de la cerradura (ESP32 / Shelly). En el prototipo es simulado.
+  send({ t: 'door' });
+  $('callInfo').textContent = 'Orden de apertura enviada (simulada en el prototipo).';
+};
+
+/* =====================================================================
+   VISITANTE
+   ===================================================================== */
+let vSel = { piso: null, depto: null }, vFotoData = '', vAck = false, vRingTimer = null, vTimeout = null;
+
+function initVisit() {
+  rol = 'vis';
+  $('visEdif').textContent = CONFIG.edificioNombre;
+  const pisos = $('pisos');
+  CONFIG.pisos.forEach(p => {
+    const b = document.createElement('button');
+    b.textContent = p.piso === 'PB' ? 'PB' : p.piso + 'º';
+    b.onclick = () => {
+      vSel = { piso: p.piso, depto: null };
+      [...pisos.children].forEach(x => x.classList.remove('sel')); b.classList.add('sel');
+      const dd = $('deptos'); dd.textContent = '';
+      p.deptos.forEach(d => {
+        const bd = document.createElement('button');
+        bd.textContent = d;
+        bd.onclick = () => { vSel.depto = d; [...dd.children].forEach(x => x.classList.remove('sel')); bd.classList.add('sel'); };
+        dd.appendChild(bd);
+      });
+    };
+    pisos.appendChild(b);
+  });
+
+  $('vFoto').onchange = e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const img = new Image();
+    img.onload = () => {
+      const max = 320, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      vFotoData = c.toDataURL('image/jpeg', 0.6);
+      $('vFotoPrev').src = vFotoData; show('vFotoPrev');
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(f);
+  };
+
+  $('btnTimbre').onclick = tocarTimbre;
+  $('btnVisCancel').onclick = () => { send({ t: 'cancel' }); visFin('Cancelaste la llamada', ''); };
+  $('btnVisRetry').onclick = () => { show('visWait', false); show('visForm'); };
+  show('vVisit');
+}
+
+function visEstado(titulo, sub, terminado) {
+  $('visStTitle').textContent = titulo; $('visStSub').textContent = sub || '';
+  show('btnVisCancel', !terminado); show('btnVisRetry', !!terminado);
+  show('visForm', false); show('visWait');
+}
+
+async function tocarTimbre() {
+  const nombre = $('vNombre').value.trim(), motivo = $('vMotivo').value.trim();
+  if (!vSel.piso || !vSel.depto) return $('visErr').textContent = 'Elegí piso y departamento.';
+  if (nombre.length < 2) return $('visErr').textContent = 'Escribí tu nombre.';
+  if (motivo.length < 3) return $('visErr').textContent = 'Contá brevemente el motivo de la visita.';
+  $('visErr').textContent = '';
+  const label = unitLabel(vSel.piso, vSel.depto);
+  visEstado('Llamando al ' + label + '…', 'Conectando');
+  try { T = await conectar(unitId(vSel.piso, vSel.depto), onVisMsg); }
+  catch (e) { return visFin('No se pudo conectar', 'Revisá tu conexión a internet y probá de nuevo.'); }
+  callId = newId(); vAck = false;
+  const ring = () => send({ t: 'ring', nombre, motivo, foto: vFotoData });
+  ring();
+  vRingTimer = setInterval(() => { if (!vAck) ring(); }, 3000);
+  vTimeout = setTimeout(() => {
+    send({ t: 'cancel' });
+    visFin('No contestan', vAck ? 'Sonó pero nadie atendió. Probá de nuevo en un rato.' : 'El portero de ese departamento no está conectado en este momento.');
+  }, CONFIG.timeoutSeg * 1000);
+}
+
+function visLimpiarTimers() { clearInterval(vRingTimer); clearTimeout(vTimeout); vRingTimer = vTimeout = null; }
+
+function visFin(titulo, sub) {
+  visLimpiarTimers(); cerrarMedia();
+  if (T) { const t = T; T = null; setTimeout(() => t.close(), 300); }
+  callId = null;
+  visEstado(titulo, sub, true);
+}
+
+async function onVisMsg(m) {
+  if (!m || m.callId !== callId) return;
+  const label = unitLabel(vSel.piso, vSel.depto);
+  switch (m.t) {
+    case 'ack':
+      vAck = true; visEstado('Sonando en el ' + label + '…', 'Esperá, ya vieron tu mensaje.'); break;
+    case 'busy':
+      visFin('Ocupado', 'Están atendiendo otra visita. Probá en un momento.'); break;
+    case 'reject':
+      visFin('No pueden atenderte', 'El propietario rechazó la llamada.'); break;
+    case 'accept': {
+      visLimpiarTimers();
+      show('visWait', false);
+      const kinds = await prepararLlamada('En llamada con el ' + label);
+      if (!pc) return;
+      if (!kinds.audio) pc.addTransceiver('audio', { direction: 'recvonly' });
+      if (!kinds.video) pc.addTransceiver('video', { direction: 'recvonly' });
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      send({ t: 'offer', sdp: pc.localDescription.sdp });
+      break;
+    }
+    case 'answer':
+      if (pc) { await pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }); await aplicarIcePendiente(); } break;
+    case 'ice': onIce(m.c); break;
+    case 'door': show('doorMsg'); break;
+    case 'hangup': visFin('Llamada finalizada', ''); break;
+  }
+}
+
+/* =====================================================================
+   PROPIETARIO
+   ===================================================================== */
+let ownUnit = null, ownCall = null, ringCtx = null, ringInt = null;
+
+function initOwner(uid) {
+  rol = 'own';
+  ownUnit = allUnits().find(u => u.id === uid);
+  show('vOwner');
+  $('ownEdif').textContent = CONFIG.edificioNombre;
+  if (!ownUnit) { $('ownTitle').textContent = 'Departamento inexistente'; show('ownOff', false); return; }
+  $('ownTitle').textContent = 'Portero · ' + ownUnit.label;
+  document.title = 'Portero ' + ownUnit.label;
+  $('btnActivar').onclick = activarPortero;
+  $('btnAceptar').onclick = aceptar;
+  $('btnRechazar').onclick = () => { send({ t: 'reject' }); ownFin(); };
+}
+
+async function activarPortero() {
+  $('btnActivar').disabled = true;
+  try {
+    ringCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await ringCtx.resume();
+  } catch (e) { ringCtx = null; }
+  try { if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission(); } catch (e) {}
+  try { T = await conectar(ownUnit.id, onOwnMsg); }
+  catch (e) { $('btnActivar').disabled = false; $('btnActivar').textContent = 'No se pudo conectar — reintentar'; return; }
+  show('ownOff', false); show('ownIdle'); $('ownLed').className = 'led on';
+}
+
+function sonar(on) {
+  clearInterval(ringInt); ringInt = null;
+  if (!on || !ringCtx) return;
+  const beep = () => {
+    [0, 0.25].forEach((dt, i) => {
+      const o = ringCtx.createOscillator(), g = ringCtx.createGain();
+      o.frequency.value = i ? 660 : 880; o.connect(g); g.connect(ringCtx.destination);
+      const t0 = ringCtx.currentTime + dt;
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+      o.start(t0); o.stop(t0 + 0.24);
+    });
+  };
+  beep(); ringInt = setInterval(beep, 1500);
+}
+
+function ownFin(perdida) {
+  sonar(false); cerrarMedia();
+  if (perdida && ownCall) {
+    $('ownMissed').textContent = 'Timbre sin atender: ' + ownCall.nombre + ' — "' + ownCall.motivo + '" (' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ')';
+    show('ownMissed');
+  }
+  ownCall = null; callId = null;
+  show('ownRing', false); show('ownIdle'); $('ownLed').className = 'led on';
+}
+
+async function aceptar() {
+  if (!ownCall) return;
+  sonar(false); show('ownRing', false);
+  await prepararLlamada('En llamada con ' + ownCall.nombre);
+  send({ t: 'accept' });
+}
+
+async function onOwnMsg(m) {
+  if (!m || !m.callId) return;
+  if (m.t === 'ring') {
+    if (ownCall && ownCall.callId === m.callId) { T.send({ callId: m.callId, t: 'ack' }); return; }
+    if (ownCall) { T.send({ callId: m.callId, t: 'busy' }); return; }
+    ownCall = { callId: m.callId, nombre: String(m.nombre || '').slice(0, 40), motivo: String(m.motivo || '').slice(0, 140) };
+    callId = m.callId;
+    $('rNombre').textContent = ownCall.nombre; $('rMotivo').textContent = ownCall.motivo;
+    const okFoto = typeof m.foto === 'string' && m.foto.startsWith('data:image/jpeg;base64,');
+    if (okFoto) $('rFoto').src = m.foto;
+    show('rFoto', okFoto);
+    show('ownMissed', false); show('ownIdle', false); show('ownRing'); $('ownLed').className = 'led ring';
+    sonar(true);
+    try {
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden)
+        new Notification('Timbre — ' + ownUnit.label, { body: ownCall.nombre + ': ' + ownCall.motivo });
+    } catch (e) {}
+    send({ t: 'ack' });
+    return;
+  }
+  if (!ownCall || m.callId !== ownCall.callId) return;
+  switch (m.t) {
+    case 'cancel': ownFin(true); break;
+    case 'offer':
+      if (!pc) return;
+      await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
+      await aplicarIcePendiente();
+      await pc.setLocalDescription(await pc.createAnswer());
+      send({ t: 'answer', sdp: pc.localDescription.sdp });
+      break;
+    case 'ice': onIce(m.c); break;
+    case 'hangup': ownFin(); break;
+  }
+}
+
+/* =====================================================================
+   ADMIN
+   ===================================================================== */
+function initAdmin() {
+  show('vAdmin');
+  $('admEdif').textContent = CONFIG.edificioNombre + ' · id: ' + CONFIG.edificioId;
+  const modo = $('admModo');
+  if (supa) { modo.className = 'banner good'; modo.textContent = 'Conectado a Supabase Realtime: funciona entre dispositivos distintos.'; }
+  else { modo.className = 'banner warn'; modo.textContent = 'Modo local (sin Supabase): solo funciona entre pestañas de este mismo navegador. Cargá SUPABASE_URL y SUPABASE_ANON_KEY en CONFIG para usarlo entre celulares.'; }
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    const w = document.createElement('div'); w.className = 'banner warn';
+    w.textContent = 'Esta página no está en HTTPS: la cámara y el micrófono pueden no funcionar, y el QR no va a servir desde otro celular. Subila a Netlify o similar.';
+    modo.after(w);
+  }
+  const visUrl = baseUrl + '?visita=1';
+  $('qrUrl').textContent = visUrl; $('qrOpen').href = visUrl;
+  if (window.QRCode) new QRCode($('qr'), { text: visUrl, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
+  else $('qr').textContent = 'No se pudo cargar el generador de QR.';
+  const tb = $('admUnits');
+  allUnits().forEach(u => {
+    const tr = document.createElement('tr'), a = document.createElement('a');
+    const url = baseUrl + '?prop=' + encodeURIComponent(u.id);
+    a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Abrir portero';
+    const td1 = document.createElement('td'), td2 = document.createElement('td'), td3 = document.createElement('td');
+    td1.textContent = u.label; td1.style.fontWeight = '700'; td1.style.whiteSpace = 'nowrap';
+    const c = document.createElement('code'); c.textContent = url; td2.appendChild(c);
+    td3.appendChild(a); td3.style.whiteSpace = 'nowrap';
+    tr.append(td1, td2, td3); tb.appendChild(tr);
+  });
+}
+
+/* ---------- Arranque ---------- */
+const q = new URLSearchParams(location.search);
+if (q.has('prop')) initOwner(q.get('prop'));
+else if (q.has('visita')) initVisit();
+else initAdmin();
+window.addEventListener('pagehide', () => { if (callId && T) send({ t: rol === 'vis' && !pc ? 'cancel' : 'hangup' }); });
+</script>
+</body>
+</html>
